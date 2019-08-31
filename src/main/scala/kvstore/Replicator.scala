@@ -3,6 +3,9 @@ package kvstore
 import akka.actor.Props
 import akka.actor.Actor
 import akka.actor.ActorRef
+import kvstore.Replica.Insert
+import kvstore.Replica.Remove
+
 import scala.concurrent.duration._
 
 object Replicator {
@@ -38,6 +41,13 @@ class Replicator(val replica: ActorRef) extends Actor {
   
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
+    case r:Replicate => {
+      if (r.valueOption.isDefined) {
+        replica.tell(Insert(r.key, r.valueOption.get, r.id), replica)
+      } else {
+        replica.tell(Remove(r.key, r.id), replica)
+      }
+    }
     case _ =>
   }
 

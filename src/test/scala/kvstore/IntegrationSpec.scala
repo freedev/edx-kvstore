@@ -9,7 +9,7 @@ import org.scalatest.{FunSuiteLike, Matchers}
 
 trait IntegrationSpec
   extends FunSuiteLike
-        with Matchers { this: KVStoreSuite =>
+        with Matchers { this: KVStoreSuite2 =>
 
   import Arbiter._
 
@@ -18,4 +18,14 @@ trait IntegrationSpec
    * then run that with flaky Persistence and/or unreliable communication (injected by
    * using an Arbiter variant that introduces randomly message-dropping forwarder Actors).
    */
+
+  test("IntegrationSpec-case1: verifies proper function of the whole system") {
+    val arbiter = TestProbe()
+    val primary = system.actorOf(Replica.props(arbiter.ref, Persistence.props(flaky = false)), "integration-spec-case1")
+    val client = session(primary)
+
+    arbiter.expectMsg(Join)
+    ()
+  }
+
   }

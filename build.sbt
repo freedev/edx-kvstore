@@ -32,7 +32,9 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka"        %% "akka-actor-testkit-typed" % akkaVersion % Test,
 
   "org.scalacheck"           %% "scalacheck"               % "1.13.5"    % Test,
-  "junit"                    % "junit"                     % "4.10"      % Test
+  "junit"                    % "junit"                     % "4.10"      % Test,
+  "com.typesafe.akka"        %% "akka-slf4j"               % akkaVersion,
+  "ch.qos.logback"           % "logback-classic"           % "1.2.3"
 )
 
 courseId := "changeme"
