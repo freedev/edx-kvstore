@@ -9,7 +9,7 @@ import org.scalatest.{FunSuiteLike, Matchers}
 
 trait IntegrationSpec
   extends FunSuiteLike
-        with Matchers { this: KVStoreSuite2 =>
+        with Matchers { this: KVStoreSuite =>
 
   import Arbiter._
 

@@ -3,8 +3,12 @@ package kvstore
 import akka.actor.Props
 import akka.actor.Actor
 import akka.actor.ActorRef
-import kvstore.Replica.Insert
-import kvstore.Replica.Remove
+import akka.pattern.RetrySupport
+import akka.util.Timeout
+import kvstore.Persistence.Persist
+import kvstore.Replica.{Insert, OperationAck, OperationReply, Remove}
+import akka.pattern.Patterns
+import scala.concurrent.Await
 
 import scala.concurrent.duration._
 
@@ -37,16 +41,36 @@ class Replicator(val replica: ActorRef) extends Actor {
     _seqCounter += 1
     ret
   }
-
   
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
     case r:Replicate => {
-      if (r.valueOption.isDefined) {
-        replica.tell(Insert(r.key, r.valueOption.get, r.id), replica)
-      } else {
-        replica.tell(Remove(r.key, r.id), replica)
+      val msg = Snapshot(r.key, r.valueOption, r.id)
+
+      implicit val scheduler=context.system.scheduler
+//      val timeout = new Timeout(Duration.create(5, "seconds"))
+//      val future = Patterns.ask(replica, msg, timeout)
+//      val result = Await.result(future, timeout.duration)
+//      result match {
+//        case _:SnapshotAck => {
+//          context.sender() ! Replicated(r.key, r.id)
+//        }
+//      }
+
+      val future = RetrySupport.retry(() => {
+        Patterns.ask(replica, msg, 200 millisecond)
+      }, 5, 200 millisecond)
+      val result = Await.result(future, 1 second)
+      result match {
+        case _:SnapshotAck => {
+          context.sender() ! Replicated(r.key, r.id)
+        }
       }
+
+
+    }
+    case r:Snapshot => {
+
     }
     case _ =>
   }

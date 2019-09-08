@@ -8,7 +8,7 @@ import scala.util.control.NonFatal
 
 trait Step1_PrimarySpec
   extends FunSuiteLike
-        with Matchers { this: KVStoreSuite2 =>
+        with Matchers { this: KVStoreSuite =>
 
   import Arbiter._
 
