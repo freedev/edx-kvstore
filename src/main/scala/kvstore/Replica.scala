@@ -5,7 +5,7 @@ import java.util.concurrent.Callable
 import akka.actor.{Actor, ActorRef, OneForOneStrategy, PoisonPill, Props, SupervisorStrategy, Terminated}
 import akka.event.Logging
 import kvstore.Arbiter.{JoinedPrimary, _}
-import akka.pattern.{CircuitBreaker, ask, pipe}
+import akka.pattern.{CircuitBreaker, RetrySupport, ask, pipe}
 
 import scala.concurrent.duration._
 import akka.util.Timeout
@@ -42,7 +42,6 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   val log = Logging(context.system, this)
 
-  val cb100 = CircuitBreaker(context.system.scheduler, maxFailures = 6, callTimeout = 900 millisecond, resetTimeout = 450 millisecond )
 
   arbiter.tell(Join, this.self)
 
@@ -124,9 +123,21 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     val storeValue = StoreValue(Some(r.value), r.id)
     val persistence = context.actorOf(persistenceProps)
     val p = Persist(r.key, Some(r.value), r.id)
-    implicit val timeout = Timeout(3 second)
-    val future = cb100.withCircuitBreaker(persistence ? p)
+    implicit val timeout = Timeout(800 milliseconds)
+    implicit val scheduler=context.system.scheduler
 
+//    val cb100 = CircuitBreaker(context.system.scheduler, maxFailures = 8, callTimeout = 100 millisecond, resetTimeout = 100 milliseconds)
+//    val future = cb100.withCircuitBreaker(persistence ? p)
+    val future = RetrySupport.retry(() => {
+      log.info("sent message Snapshot to replica")
+      Patterns.ask(persistence, p, 100 millisecond)
+    }, 8, 100 millisecond)
+
+    future onFailure {
+      case _ => {
+        sender ! OperationFailed(p.id)
+      }
+    }
     future onSuccess {
       case p: Persisted => {
         log.info("Received Persisted - Send to OperationAck")
@@ -152,6 +163,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     val persistence = context.actorOf(persistenceProps)
 
     log.info("withCircuitBreaker... start")
+    val cb100 = CircuitBreaker(context.system.scheduler, maxFailures = 6, callTimeout = 900 millisecond, resetTimeout = 450 millisecond )
     val future = cb100.withCircuitBreaker(persistence ? p)
     log.info("withCircuitBreaker... end")
     future onSuccess {
