@@ -4,10 +4,10 @@ import akka.actor.Props
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.event.Logging
-import akka.pattern.{CircuitBreaker, Patterns, RetrySupport}
+import akka.pattern.{Patterns, RetrySupport}
 import akka.util.Timeout
 import kvstore.Persistence.Persist
-import kvstore.Replica.{Insert, OperationAck, OperationReply, Remove}
+import kvstore.Replica.{Insert, OperationAck, OperationReply, Remove, SendMessage}
 import akka.pattern.{CircuitBreaker, ask, pipe}
 
 import scala.concurrent.Await
@@ -54,21 +54,20 @@ class Replicator(val replica: ActorRef) extends Actor {
       val sender = context.sender()
       implicit val scheduler=context.system.scheduler
 
-//      implicit val timeout = Timeout(3 second)
-//      val cb100 = CircuitBreaker(context.system.scheduler, maxFailures = 50, callTimeout = 3 seconds, resetTimeout = 100 milliseconds )
-//      val future = cb100.withCircuitBreaker(replica ? msg)
+      val actorChildB = context.actorOf(Props(classOf[ReplicatorChild], self, sender, replica, msg))
+      actorChildB ! SendMessage(r.key, r.id)
 
-      val future = RetrySupport.retry(() => {
-        log.info("sent message Snapshot to replica")
-        Patterns.ask(replica, msg, 100 millisecond)
-      }, 50, 100 millisecond)
-
-      future onSuccess {
-        case s:SnapshotAck => {
-          log.info("received message SnapshotAck")
-          sender ! Replicated(s.key, s.seq)
-        }
-      }
+//      val future = RetrySupport.retry(() => {
+//        log.info("Replicator sent message Snapshot to replica")
+//        Patterns.ask(replica, msg, 100 millisecond)
+//      }, 50, 100 millisecond)
+//
+//      future onSuccess {
+//        case s:SnapshotAck => {
+//          log.info("Replicator received message SnapshotAck")
+//          sender ! Replicated(s.key, s.seq)
+//        }
+//      }
 
     }
     case _ =>
