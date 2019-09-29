@@ -6,8 +6,7 @@ import org.scalatest.BeforeAndAfterAll
 
 class KVStoreSuite
   extends
-    IntegrationSpec
-    with Step1_PrimarySpec
+    Step1_PrimarySpec
     with Step2_SecondarySpec
     with Step3_ReplicatorSpec
     with Step4_SecondaryPersistenceSpec
