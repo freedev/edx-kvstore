@@ -54,6 +54,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
    */
   
   var kv = Map.empty[String, StoreValue]
+  var replicatedAck = Map.empty[String, Int]
   // a map from secondary replicas to replicators
   var secondaries = Map.empty[ActorRef, ActorRef]
   // the current set of replicators
@@ -64,16 +65,40 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case JoinedSecondary => context.become(replica)
   }
 
+  def checkSecondaries(size: Int, r: PersistAck, self: ActorRef, tentatives: Int): Unit = {
+    import scala.language.postfixOps
+    if (tentatives < 20) {
+      val num = replicatedAck.get(r.key)
+      if (num.isEmpty) {
+        r.sender.tell(OperationAck(r.id), self)
+      } else {
+        num.foreach(v => {
+          log.info("Replica - checkSecondaries replicatedAck " + r.key + "=" + v)
+          if (v > 0) {
+            context.system.scheduler.scheduleOnce(100 milliseconds)({
+              checkSecondaries(size, r, self, tentatives + 1)
+            })
+          } else {
+            r.sender.tell(OperationAck(r.id), self)
+          }
+        })
+      }
+    } else {
+      r.sender.tell(OperationFailed(r.id), self)
+    }
+  }
+
   /* TODO Behavior for  the leader role. */
   val leader: Receive = {
     case r:PersistAck => {
       log.info("Replica - leader received message: PersistAck")
       kv = kv + ((r.key, StoreValue(r.valueOption, r.id)))
-      r.sender.tell(OperationAck(r.id), this.self)
+      replicatedAck = replicatedAck + ((r.key, secondaries.size))
       secondaries.values.foreach(secondaryReplicator => {
         log.info("Replica - sending Replicate to all replicators " + secondaryReplicator)
         secondaryReplicator.tell(Replicate(r.key, r.valueOption, r.id), secondaryReplicator)
       })
+      checkSecondaries(secondaries.size, r, this.self, 0)
     }
     case r:Replicas => {
       log.info("Replica - leader received message: Replicas")
@@ -128,8 +153,6 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       if (v.isDefined) {
         kv  = kv - (r.key)
         log.info("Replica - key " + r.key + " removed. Sending OperationAck to the client ")
-//        sender() ! OperationAck(r.id)
-//        saveInsert(r, sender())
         val p = Persist(r.key, None, r.id)
         savePersist(p, sender())
       } else {
@@ -137,12 +160,12 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
         sender() ! OperationFailed(r.id)
       }
     }
-    case _ =>
+    case m => {
+      log.error("Replica - leader received unhandled message " + m)
+    }
   }
 
   private def savePersist(p: Persist, sender: ActorRef) = {
-//    val storeValue = StoreValue(Some(r.value), r.id)
-//    val p = Persist(r.key, Some(r.value), r.id)
     implicit val timeout = Timeout(800.milliseconds)
     implicit val scheduler=context.system.scheduler
 
@@ -171,6 +194,13 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   /* TODO Behavior for the replica role. */
   val replica: Receive = {
+    case r:Replicated => {
+      log.info("Replica - secondary received message: Replicated")
+      val num = replicatedAck.get(r.key)
+      num.foreach(v => {
+        replicatedAck = replicatedAck + ((r.key, v - 1))
+      })
+    }
     case r:PersistAck => {
       log.info("Replica - secondary received message: PersistAck")
       r.sender.tell(SnapshotAck(r.key, r.id), this.self)
@@ -207,7 +237,9 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case r:Remove => {
       sender() ! OperationFailed(r.id)
     }
-    case _ =>
+    case m => {
+      log.error("Replica - secondary received unhandled message " + m)
+    }
   }
 
 }

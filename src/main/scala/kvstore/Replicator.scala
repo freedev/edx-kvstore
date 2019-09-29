@@ -16,7 +16,7 @@ import scala.concurrent.duration._
 object Replicator {
   case class Replicate(key: String, valueOption: Option[String], id: Long)
   case class Replicated(key: String, id: Long)
-  
+
   case class Snapshot(key: String, valueOption: Option[String], seq: Long)
   case class SnapshotAck(key: String, seq: Long)
 
@@ -47,30 +47,33 @@ class Replicator(val replica: ActorRef) extends Actor {
   
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
+    case r:SnapshotAck => {
+      log.info("Replicator received message SnapshotAck - " + replica)
+      val v = acks.get(r.seq)
+      if (v.isEmpty) {
+        log.info("Replicator acks empty for " + r.seq)
+      }
+      v.foreach(ref => {
+        log.info("Replicator send message Replicated to " + ref._1)
+        ref._1 ! Replicated(r.key, r.seq)
+      })
+    }
     case r:Replicate => {
       log.info("Replicator received message Replicate")
 
       val msg = Snapshot(r.key, r.valueOption, r.id)
       val sender = context.sender()
+
+      acks = acks + ((r.id, (sender, r)))
       implicit val scheduler=context.system.scheduler
 
       val actorChildB = context.actorOf(Props(classOf[ReplicatorChild], self, sender, replica, msg))
       actorChildB ! SendMessage(r.key, r.id)
 
-//      val future = RetrySupport.retry(() => {
-//        log.info("Replicator sent message Snapshot to replica")
-//        Patterns.ask(replica, msg, 100 millisecond)
-//      }, 50, 100 millisecond)
-//
-//      future onSuccess {
-//        case s:SnapshotAck => {
-//          log.info("Replicator received message SnapshotAck")
-//          sender ! Replicated(s.key, s.seq)
-//        }
-//      }
-
     }
-    case _ =>
+    case m => {
+      log.info("Replicator received unhandled message " + m)
+    }
   }
 
 }

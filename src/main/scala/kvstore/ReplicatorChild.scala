@@ -14,7 +14,7 @@ object ReplicatorChild {
 
 class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, snapshot : Snapshot) extends Actor with ActorLogging {
 
-  log.info(s"ReplicatorChild - Started because of Replica")
+  log.info(s"ReplicatorChild - Started because of Replica " + parentActor)
 
   var cancellableSchedule:Option[Cancellable] = None
   var counter = 0
@@ -33,7 +33,7 @@ class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, 
     case r:SnapshotAck => {
       log.info("ReplicatorChild - Received SnapshotAck from " + sender())
       cancellableSchedule.foreach(c => c.cancel())
-      sender ! Replicated(r.key, r.seq)
+      parentActor ! r
       context.stop(self)
     }
     case r:SendMessage => {
@@ -52,12 +52,12 @@ class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, 
   }
 
   private def sendMessage(): Unit = {
-    log.info("ReplicatorChild - sendMessage " + snapshot.getClass.getName + " to " + replica)
+//    log.info("ReplicatorChild - sendMessage " + snapshot.getClass.getName + " to " + replica)
     counter = counter + 1
     if (counter < 20) {
       replica ! snapshot
     } else  {
-      sender ! Replicated(snapshot.key, snapshot.seq)
+//      sender ! Replicated(snapshot.key, snapshot.seq)
       if (context != null)
         context.stop(self)
     }
