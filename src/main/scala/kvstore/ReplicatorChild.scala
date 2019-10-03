@@ -12,15 +12,15 @@ object ReplicatorChild {
   def props(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, snapshot : Snapshot): Props = Props(classOf[ReplicaChild], parentActor, sender, replica, snapshot)
 }
 
-class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, snapshot : Snapshot) extends Actor with ActorLogging {
+class ReplicatorChild(replicator:ActorRef, leader:ActorRef, replica: ActorRef, snapshot : Snapshot) extends Actor with ActorLogging {
 
-  log.info(s"ReplicatorChild - Started because of Replica " + parentActor)
+  log.info(s"ReplicatorChild - Started because of Replicator " + replicator + " leader " + leader)
 
   var cancellableSchedule:Option[Cancellable] = None
   var counter = 0
 
   override def preStart(): Unit = {
-    log.info("ReplicatorChild - preStart")
+    log.info("ReplicatorChild - preStart " + self)
     //    sendMessage()
   }
 
@@ -33,7 +33,8 @@ class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, 
     case r:SnapshotAck => {
       log.info("ReplicatorChild - Received SnapshotAck from " + sender())
       cancellableSchedule.foreach(c => c.cancel())
-      parentActor ! r
+      replicator ! r
+      leader ! Replicated(r.key, r.seq)
       context.stop(self)
     }
     case r:SendMessage => {

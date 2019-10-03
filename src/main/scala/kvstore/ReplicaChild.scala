@@ -19,7 +19,7 @@ class ReplicaChild(parentActor:ActorRef, sender:ActorRef, persistence: ActorRef,
   var counter = 0
 
   override def preStart(): Unit = {
-    log.info("ReplicaChild - preStart")
+    log.info("ReplicaChild - preStart " + self)
     //    sendMessage()
   }
 
