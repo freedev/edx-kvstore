@@ -24,7 +24,7 @@ class Persistence(flaky: Boolean) extends Actor {
 
   def receive = {
     case Persist(key, _, id) => {
-      log.info("Persistence received message Persist")
+     // log.info("Persistence received message Persist")
       if (!flaky || Random.nextBoolean()) sender ! Persisted(key, id)
       else throw new PersistenceException
     }

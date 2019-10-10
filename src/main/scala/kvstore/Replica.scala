@@ -1,9 +1,10 @@
 package kvstore
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, PoisonPill, Props, Timers}
 import akka.event.Logging
-import akka.util.Timeout
 import kvstore.Arbiter.{JoinedPrimary, _}
+import kvstore.MassiveReplicatorChild.MassiveReplicatorDead
+import kvstore.ReplicaChild.ReplicaChildDead
 
 import scala.concurrent.duration._
 
@@ -51,22 +52,30 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   arbiter.tell(Join, this.self)
 
-  log.info("replica tells to the arbiter: Join")
+ // log.info("replica tells to the arbiter: Join")
 
   /*
    * The contents of this actor is just a suggestion, you can implement it in any way you like.
    */
 
   var kv = Map.empty[String, StoreValue]
-  var replicatedAck = Map.empty[String, Int]
+  var replicatedAck = Map.empty[Long, Int]
+  var msgCounterMap = Map.empty[Long, Long]
   // a map from secondary replicas to replicators
   var secondaries = Map.empty[ActorRef, ActorRef]
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
 
+  var childrenActors = Set.empty[ActorRef]
+
   override def preStart(): Unit = {
-    log.info("Replica - preStart " + self)
+   // log.info("Replica - preStart " + self)
     //    sendMessage()
+  }
+
+  override def postStop(): Unit = {
+    super.postStop()
+    log.info("Replica - postStop ")
   }
 
   def receive = {
@@ -79,46 +88,57 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     }
   }
 
-  def checkSecondaries(size: Int, r: PersistAck, self: ActorRef, tentatives: Int): Unit = {
-    import scala.language.postfixOps
-    if (tentatives < 10) {
-      val num = replicatedAck.get(r.key)
-      if (num.isEmpty) {
-        r.sender.tell(OperationAck(r.id), self)
-      } else {
-        num.foreach(v => {
-          log.info("Replica - checkSecondaries replicatedAck " + r.key + "=" + v)
-          if (v > 0) {
-            context.system.scheduler.scheduleOnce(100 milliseconds)({
-              checkSecondaries(size, r, self, tentatives + 1)
-            })
-          } else {
-            r.sender.tell(OperationAck(r.id), self)
-          }
-        })
-      }
-    } else {
-      r.sender.tell(OperationFailed(r.id), self)
-    }
-  }
-
   /* TODO Behavior for  the leader role. */
   val leader: Receive = {
     case r: GetLeaderAck => curLeader = r.curLeader
+    case r: Replicated => {
+      log.info("Replica - leader received message: Replicated " + replicatedAck(r.id))
+      val ackSize =  replicatedAck(r.id) - 1
+      if (ackSize == 0) {
+        replicatedAck = replicatedAck - (r.id)
+      } else {
+
+      }
+    }
+    case r: ReplicaChildDead => {
+      log.info("Replica - leader received message: ReplicaChildDead ")
+      childrenActors = childrenActors - sender()
+    }
+    case r: MassiveReplicatorDead => {
+      log.info("Replica - leader received message: MassiveReplicatorDead ")
+      childrenActors = childrenActors - sender()
+    }
     case r: PersistAck => {
       log.info("Replica - leader received message: PersistAck")
-      kv = kv + ((r.key, StoreValue(r.valueOption, r.id)))
-      replicatedAck = replicatedAck + ((r.key, secondaries.size))
+      replicatedAck = replicatedAck + ((r.id, secondaries.size))
       if (curLeader.isEmpty) {
-        secondaries.foreach(element => {
-          log.info("Replica - sending Replicate to all replicators " + element._2)
-          element._2.tell(Replicate(r.key, r.valueOption, r.id), element._2)
-        })
-        checkSecondaries(secondaries.size, r, this.self, 0)
+        if (secondaries.isEmpty) {
+          r.sender.tell(OperationAck(r.id), self)
+        } else {
+
+          log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
+          val replicate = Replicate(r.key, r.valueOption, r.id)
+          childrenActors = childrenActors + context.actorOf(Props(classOf[MassiveReplicatorChild], secondaries, r.sender, replicate))
+
+        }
       }
     }
     case r: Replicas => {
-      log.info("Replica - leader received message: Replicas")
+      log.info("Replica - leader received message: Replicas " + secondaries.size)
+
+      var deadReplicas = Set.empty[ActorRef]
+
+      secondaries foreach (entry => {
+        if (!r.replicas.contains(entry._1)) {
+          entry._1 ! PoisonPill
+          entry._2 ! PoisonPill
+          deadReplicas = deadReplicas + entry._1
+          replicators = replicators - entry._2
+        }
+      })
+      deadReplicas foreach (deadReplica => {
+        secondaries = secondaries - deadReplica
+      })
       r.replicas foreach (curRep => {
         // Only replicas not contained into secondaries map should be updated
         if (!curRep.equals(self)) {
@@ -129,7 +149,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
             secondaries = secondaries + ((curRep, replicator))
 
             kv.foreach(element => {
-              log.info("Replica - leader start replication to new replicator " + replicator)
+             // log.info("Replica - leader start replication to new replicator " + replicator)
               replicator.tell(Replicate(element._1, element._2.value, element._2.id), self)
             })
           }
@@ -138,30 +158,30 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       // r.replicas foreach
     }
     case r: Get => {
-      log.info("Replica - received Get " + r.key)
+     // log.info("Replica - received Get " + r.key)
       if (kv.contains(r.key)) {
-        log.info("Replica - " + r.key + " Found ")
+       // log.info("Replica - " + r.key + " Found ")
         sender() ! GetResult(r.key, kv.get(r.key).get.value, r.id)
       } else {
-        log.info("Replica - " + r.key + " NOT Found ")
+       // log.info("Replica - " + r.key + " NOT Found ")
         sender() ! GetResult(r.key, None, r.id)
       }
     }
     case r: Insert => {
-      log.info("Replica - received Insert")
+      log.info("Replica - leader - received Insert")
       val v = kv.get(r.key)
       if (v.isDefined) {
-        log.info("Replica - key is defined " + r.key)
-        if (v.get.id < r.id) {
+       // log.info("Replica - key is defined " + r.key)
+        if (v.get.id <= r.id) {
           log.info("Replica - key " + r.key + " request id is higher than saved. Saving...")
           val p = Persist(r.key, Some(r.value), r.id)
           savePersist(p, sender())
         } else {
-          log.info("Replica - key " + r.key + " request id is lower than saved. NOT Saving. Sending back OperationFailed to the client.")
+         // log.info("Replica - key " + r.key + " request id is lower than saved. NOT Saving. Sending back OperationFailed to the client.")
           sender() ! OperationFailed(r.id)
         }
       } else {
-        log.info("Replica - key " + r.key + " is not Defined. Saving...")
+       // log.info("Replica - key " + r.key + " is not Defined. Saving...")
         val p = Persist(r.key, Some(r.value), r.id)
         savePersist(p, sender())
       }
@@ -170,27 +190,27 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       val v = kv.get(r.key)
       if (v.isDefined) {
         kv = kv - (r.key)
-        log.info("Replica - key " + r.key + " removed. Sending OperationAck to the client ")
+       // log.info("Replica - key " + r.key + " removed. Sending OperationAck to the client ")
         val p = Persist(r.key, None, r.id)
         savePersist(p, sender())
       } else {
-        log.info("Replica - key " + r.key + " NOT removed. Sending OperationFailed to the client ")
+       // log.info("Replica - key " + r.key + " NOT removed. Sending OperationFailed to the client ")
         sender() ! OperationFailed(r.id)
       }
     }
     case m => {
-      log.error("Replica - leader received unhandled message " + m + " from " + sender())
+     log.error("Replica - leader received unhandled message " + m + " from " + sender())
     }
   }
 
   private def savePersist(p: Persist, sender: ActorRef) = {
-    implicit val timeout = Timeout(800.milliseconds)
-    implicit val scheduler = context.system.scheduler
 
-    log.info("Replica - savePersist creating ReplicaChild " + p.id)
+    kv = kv + ((p.key, StoreValue(p.valueOption, p.id)))
 
-    val replicaChild = context.actorOf(Props(classOf[ReplicaChild], self, sender, persistence, p))
-    replicaChild ! SendMessage(p.key, p.id)
+    childrenActors = childrenActors + context.actorOf(Props(classOf[ReplicaChild], sender, persistence, p))
+
+    // log.info("Replica - savePersist creating ReplicaChild " + p.id)
+
 
   }
 
@@ -201,20 +221,23 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
     val p = Persist(r.key, r.valueOption, r.seq)
 
-    //    savePersist(p, replicator)
-    implicit val timeout = Timeout(800.milliseconds)
-    implicit val scheduler = context.system.scheduler
+   // log.info("Replica - saveSnapshot creating ReplicaChild " + r.seq)
 
-    log.info("Replica - saveSnapshot creating ReplicaChild " + r.seq)
-
-    val replicaChild = context.actorOf(Props(classOf[ReplicaChild], self, replicator, persistence, p))
-    replicaChild ! SendMessage(r.key, r.seq)
+    childrenActors = childrenActors + context.actorOf(Props(classOf[ReplicaChild], replicator, persistence, p))
 
   }
 
   /* TODO Behavior for the replica role. */
   val replica: Receive = {
+    case r: PoisonPill => {
+      log.info("Replica - secondary received message: PoisonPill")
+      childrenActors foreach (child => child ! PoisonPill)
+      context.stop(self)
+    }
     case r: GetLeaderAck => curLeader = r.curLeader
+    case r: ReplicaChildDead => {
+      childrenActors = childrenActors - sender()
+    }
     case r: Replicated => {
       log.info("Replica - secondary received message: Replicated")
       curLeader foreach (l => {
@@ -226,23 +249,23 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       r.sender.tell(SnapshotAck(r.key, r.id), this.self)
     }
     case r: Snapshot => {
-      log.info("Replica received message Snapshot")
+     // log.info("Replica received message Snapshot")
       val v = kv.get(r.key)
       val kvId = v.getOrElse(StoreValue(null, 0L))
       if (v.isEmpty && r.valueOption.isEmpty && r.seq == kvId.id) {
-        log.info("Before saveSnapshot 1")
+       // log.info("Before saveSnapshot 1")
         saveSnapshot(r, sender())
       } else if (v.isDefined) {
         if (r.seq > kvId.id) {
-          log.info("Before saveSnapshot 2")
+         // log.info("Before saveSnapshot 2")
           saveSnapshot(r, sender())
         } else {
           sender() ! SnapshotAck(r.key, r.seq)
-          log.info("Replica sent message SnapshotAck")
+         // log.info("Replica sent message SnapshotAck")
         }
       } else {
         if (r.seq == 0) {
-          log.info("Replica - Before saveSnapshot 3")
+         // log.info("Replica - Before saveSnapshot 3")
           saveSnapshot(r, sender())
         }
       }

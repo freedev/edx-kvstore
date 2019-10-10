@@ -33,12 +33,12 @@ class Arbiter extends Actor {
     }
     case Join =>
       if (leader.isEmpty) {
-        log.info("leader is empty")
+       // log.info("leader is empty")
         leader = Some(sender)
         replicas += sender
         sender ! JoinedPrimary
       } else {
-        log.info("leader is not empty")
+       // log.info("leader is not empty")
         replicas += sender
         sender ! JoinedSecondary
       }
