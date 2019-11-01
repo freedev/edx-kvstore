@@ -1,66 +1,71 @@
 package kvstore
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, PoisonPill, Props, Timers}
 import akka.event.LoggingReceive
 import kvstore.Persistence.{Persist, PersistAck, Persisted}
 import kvstore.Replica.{OperationFailed, SendMessage}
 import kvstore.Replicator.{Replicated, Snapshot, SnapshotAck}
+import kvstore.ReplicatorChild.ReplicatorChildDead
 
 import scala.concurrent.duration._
 
 object ReplicatorChild {
-  def props(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, snapshot : Snapshot): Props = Props(classOf[ReplicaChild], parentActor, sender, replica, snapshot)
+
+  case class ReplicatorChildDead()
+
+  def props(sender:ActorRef, replica: ActorRef, snapshot : Snapshot): Props = Props(classOf[ReplicaChild], sender, replica, snapshot)
 }
 
-class ReplicatorChild(parentActor:ActorRef, sender:ActorRef, replica: ActorRef, snapshot : Snapshot) extends Actor with ActorLogging {
+class ReplicatorChild(leader:ActorRef, replica: ActorRef, snapshot : Snapshot)
+  extends Actor
+  with ActorLogging
+  with Timers
+{
 
-  log.info(s"ReplicatorChild - Started because of Replica")
+  timers.startPeriodicTimer(snapshot.seq, SendMessage(snapshot.key, snapshot.seq), 100.millis)
+  replica ! snapshot
 
-  var cancellableSchedule:Option[Cancellable] = None
   var counter = 0
 
   override def preStart(): Unit = {
-    log.info("ReplicatorChild - preStart")
+   // log.info("ReplicatorChild - preStart " + self)
     //    sendMessage()
   }
 
   override def postRestart(reason: Throwable): Unit = {
     super.postRestart(reason)
-    log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
+   // log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
   }
 
   def receive = LoggingReceive {
+    case r: PoisonPill => {
+      log.info("ReplicatorChild - secondary received message: PoisonPill")
+      timers.cancel(snapshot.seq)
+      context.parent ! ReplicatorChildDead()
+      context.stop(self)
+    }
     case r:SnapshotAck => {
       log.info("ReplicatorChild - Received SnapshotAck from " + sender())
-      cancellableSchedule.foreach(c => c.cancel())
-      sender ! Replicated(r.key, r.seq)
+      context.parent ! r // why?
+      leader.tell(Replicated(r.key, r.seq), context.parent)
+      log.info("ReplicatorChild - leader IS " + leader)
+      timers.cancel(snapshot.seq)
       context.stop(self)
     }
     case r:SendMessage => {
-      log.info("ReplicatorChild - Received SendMessage from " + sender())
-      //      sendMessage()
-      sendScheduledMessage
+     // log.info("ReplicatorChild - Received SendMessage from " + sender())
+      counter = counter + 1
+      if (counter < 10) {
+        replica ! snapshot
+      } else  {
+        //      sender ! Replicated(snapshot.key, snapshot.seq)
+        if (context != null) {
+          timers.cancel(snapshot.seq)
+          context.stop(self)
+        }
+      }
     }
   }
 
-  private def sendScheduledMessage(): Unit = {
-    import scala.concurrent.ExecutionContext.Implicits.global
-    import scala.language.postfixOps
-    cancellableSchedule = Option(context.system.scheduler.schedule(0 milliseconds, 50 milliseconds){
-      sendMessage()
-    })
-  }
-
-  private def sendMessage(): Unit = {
-    log.info("ReplicatorChild - sendMessage " + snapshot.getClass.getName + " to " + replica)
-    counter = counter + 1
-    if (counter < 20) {
-      replica ! snapshot
-    } else  {
-      sender ! Replicated(snapshot.key, snapshot.seq)
-      if (context != null)
-        context.stop(self)
-    }
-  }
 
 }
