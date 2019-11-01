@@ -2,7 +2,7 @@ package kvstore
 
 import akka.actor.{Actor, ActorLogging, ActorRef, PoisonPill, Timers}
 import akka.event.LoggingReceive
-import kvstore.MassiveReplicatorChild.{CheckReplicateStatus, MassiveReplicatorDead}
+import kvstore.MassiveReplicatorChild.{CheckReplicateStatus, MassiveReplicatorDead, RemovedReplica}
 import kvstore.Replica.{Operation, OperationAck, OperationFailed, SendMessage}
 import kvstore.Replicator.{Replicate, Replicated, Snapshot, SnapshotAck}
 
@@ -10,12 +10,13 @@ import scala.concurrent.duration._
 
 object MassiveReplicatorChild {
 
+  case class RemovedReplica(replica: ActorRef)
   case class CheckReplicateStatus(id: Long)
   case class MassiveReplicatorDead()
 
 }
 
-class MassiveReplicatorChild(secondaries:Map[ActorRef, ActorRef], client:ActorRef, replicate : Replicate)
+class MassiveReplicatorChild(var secondaries:Map[ActorRef, ActorRef], client:ActorRef, replicate : Replicate)
   extends Actor
   with ActorLogging
   with Timers
@@ -36,26 +37,36 @@ class MassiveReplicatorChild(secondaries:Map[ActorRef, ActorRef], client:ActorRe
    // log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
   }
 
+  def checkAckCount():Unit = {
+    ackSize = ackSize - 1
+    if (ackSize == 0) {
+      log.info("MassiveReplicatorChild - received message: Replicated")
+      client ! OperationAck(replicate.id)
+      context.parent ! MassiveReplicatorDead()
+      timers.cancel(replicate.id)
+      context.stop(self)
+    }
+  }
+
   def receive = LoggingReceive {
     case r: PoisonPill => {
       log.info("MassiveReplicatorChild - secondary received message: PoisonPill")
       timers.cancel(replicate.id)
       context.stop(self)
     }
+    case r: RemovedReplica => {
+      val replica = r.replica
+      log.info("MassiveReplicatorChild - secondary received message: RemovedReplica " + replica )
+      secondaries = secondaries - replica
+      checkAckCount
+    }
     case r: Replicated => {
-      ackSize = ackSize - 1
-      if (ackSize == 0) {
-        log.info("MassiveReplicatorChild - received message: Replicated")
-        client ! OperationAck(r.id)
-        context.parent ! MassiveReplicatorDead()
-        timers.cancel(replicate.id)
-        context.stop(self)
-      }
+      checkAckCount
     }
     case r: CheckReplicateStatus => {
       counter = counter + 1
+      log.info("MassiveReplicatorChild - Received CheckReplicateStatus counter = " + counter)
       if (counter > 10) {
-        log.info("MassiveReplicatorChild - Received CheckReplicateStatus counter = " + counter)
         client ! OperationFailed(r.id)
         timers.cancel(replicate.id)
         context.parent ! MassiveReplicatorDead()

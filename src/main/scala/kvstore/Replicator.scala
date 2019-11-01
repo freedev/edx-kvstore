@@ -23,7 +23,6 @@ object Replicator {
 
 class Replicator(val replica: ActorRef) extends Actor {
   import Replicator._
-  import context.dispatcher
 
 
   val log = Logging(context.system, this)
@@ -58,7 +57,8 @@ class Replicator(val replica: ActorRef) extends Actor {
       context.stop(self)
     }
     case r:SnapshotAck => {
-     // log.info("Replicator received message SnapshotAck - " + replica)
+     log.info("Replicator received message SnapshotAck - " + replica)
+      context.parent ! Replicated(r.key, r.seq)
 
       //      val v = acks.get(r.seq)
 //      if (v.isEmpty) {
@@ -70,15 +70,13 @@ class Replicator(val replica: ActorRef) extends Actor {
 //      })
     }
     case r:Replicate => {
-     // log.info("Replicator received message Replicate")
+     log.info("Replicator received message Replicate")
 
       val msg = Snapshot(r.key, r.valueOption, r.id)
-      val leader = sender()
 
       acks = acks + ((r.id, (sender, r)))
-      implicit val scheduler=context.system.scheduler
 
-      childrenActors = childrenActors + context.actorOf(Props(classOf[ReplicatorChild], leader, replica, msg))
+      childrenActors = childrenActors + context.actorOf(Props(classOf[ReplicatorChild], sender(), replica, msg))
 //      replicatorChild ! SendMessage(r.key, r.id)
 
     }

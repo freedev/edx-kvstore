@@ -3,7 +3,7 @@ package kvstore
 import akka.actor.{Actor, ActorRef, PoisonPill, Props, Timers}
 import akka.event.Logging
 import kvstore.Arbiter.{JoinedPrimary, _}
-import kvstore.MassiveReplicatorChild.MassiveReplicatorDead
+import kvstore.MassiveReplicatorChild.{MassiveReplicatorDead, RemovedReplica}
 import kvstore.ReplicaChild.ReplicaChildDead
 
 import scala.concurrent.duration._
@@ -48,8 +48,6 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   val persistence = context.actorOf(persistenceProps)
 
-  var curLeader: Option[ActorRef] = None
-
   arbiter.tell(Join, this.self)
 
  // log.info("replica tells to the arbiter: Join")
@@ -84,13 +82,11 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     }
     case JoinedSecondary => {
       context.become(replica)
-      sender() ! GetLeader()
     }
   }
 
   /* TODO Behavior for  the leader role. */
   val leader: Receive = {
-    case r: GetLeaderAck => curLeader = r.curLeader
     case r: Replicated => {
       log.info("Replica - leader received message: Replicated " + replicatedAck(r.id))
       val ackSize =  replicatedAck(r.id) - 1
@@ -111,16 +107,14 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case r: PersistAck => {
       log.info("Replica - leader received message: PersistAck")
       replicatedAck = replicatedAck + ((r.id, secondaries.size))
-      if (curLeader.isEmpty) {
-        if (secondaries.isEmpty) {
-          r.sender.tell(OperationAck(r.id), self)
-        } else {
+      if (secondaries.isEmpty) {
+        r.sender.tell(OperationAck(r.id), self)
+      } else {
 
-          log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
-          val replicate = Replicate(r.key, r.valueOption, r.id)
-          childrenActors = childrenActors + context.actorOf(Props(classOf[MassiveReplicatorChild], secondaries, r.sender, replicate))
+        log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
+        val replicate = Replicate(r.key, r.valueOption, r.id)
+        childrenActors = childrenActors + context.actorOf(Props(classOf[MassiveReplicatorChild], secondaries, r.sender, replicate))
 
-        }
       }
     }
     case r: Replicas => {
@@ -130,6 +124,8 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
       secondaries foreach (entry => {
         if (!r.replicas.contains(entry._1)) {
+          log.info("Replica - sending poisonPill to Replicas " + entry._1)
+          log.info("Replica - sending poisonPill to Replicator " + entry._2)
           entry._1 ! PoisonPill
           entry._2 ! PoisonPill
           deadReplicas = deadReplicas + entry._1
@@ -138,6 +134,10 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       })
       deadReplicas foreach (deadReplica => {
         secondaries = secondaries - deadReplica
+        childrenActors.foreach(child => {
+          log.info("Replica - sending RemovedReplica to childActor " + child)
+          child ! RemovedReplica(deadReplica)
+        })
       })
       r.replicas foreach (curRep => {
         // Only replicas not contained into secondaries map should be updated
@@ -234,15 +234,8 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       childrenActors foreach (child => child ! PoisonPill)
       context.stop(self)
     }
-    case r: GetLeaderAck => curLeader = r.curLeader
     case r: ReplicaChildDead => {
       childrenActors = childrenActors - sender()
-    }
-    case r: Replicated => {
-      log.info("Replica - secondary received message: Replicated")
-      curLeader foreach (l => {
-        l ! r
-      })
     }
     case r: PersistAck => {
       log.info("Replica - secondary received message: PersistAck")
