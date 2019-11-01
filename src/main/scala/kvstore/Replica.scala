@@ -108,6 +108,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       log.info("Replica - leader received message: PersistAck")
       replicatedAck = replicatedAck + ((r.id, secondaries.size))
       if (secondaries.isEmpty) {
+        log.info("Replica - leader send message: OperationAck back to " + r.sender)
         r.sender.tell(OperationAck(r.id), self)
       } else {
 
@@ -168,7 +169,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: Insert => {
-      log.info("Replica - leader - received Insert")
+      log.info("Replica - leader - received Insert from " + sender())
       val v = kv.get(r.key)
       if (v.isDefined) {
        // log.info("Replica - key is defined " + r.key)
