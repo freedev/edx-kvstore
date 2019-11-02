@@ -99,7 +99,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: ReplicaChildDead => {
-// log.info("Replica - leader received message: ReplicaChildDead ")
+      log.info("Replica - leader received message: ReplicaChildDead ")
       childrenActors = childrenActors - sender()
     }
     case r: MassiveReplicatorDead => {
@@ -107,14 +107,14 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       childrenActors = childrenActors - sender()
     }
     case r: PersistAck => {
-// log.info("Replica - leader received message: PersistAck " + r)
+      log.info("Replica - leader received message: PersistAck " + r)
       replicatedAck = replicatedAck + ((r.id, secondaries.size))
       if (secondaries.isEmpty) {
         val optAck = OperationAck(r.id)
-// log.info("Replica - leader send message: OperationAck " + optAck + " back to " + r.sender)
+        log.info("Replica - leader send message: OperationAck " + optAck + " back to " + r.sender)
         r.sender.tell(optAck, self)
       } else {
-// log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
+        log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
         val replicate = Replicate(r.key, r.valueOption, r.id)
         childrenActors = childrenActors + context.actorOf(Props(classOf[MassiveReplicatorChild], secondaries, r.sender, replicate))
       }
@@ -170,20 +170,20 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: Insert => {
-//       log.info("Replica - leader - received Insert " + r + " from " + sender())
+       log.info("Replica - leader - received Insert " + r + " from " + sender())
       val v = kv.get(r.key)
       if (v.isDefined) {
-       // log.info("Replica - key is defined " + r.key)
+        log.info("Replica - key is defined " + r.key)
         if (v.get.id <= r.id) {
-//           log.info("Replica - key " + r.key + " request id is higher than saved. Saving...")
+          log.info("Replica - key " + r.key + " request id is higher than saved. Saving...")
           val p = Persist(r.key, Some(r.value), r.id)
           savePersist(p, sender())
         } else {
-         // log.info("Replica - key " + r.key + " request id is lower than saved. NOT Saving. Sending back OperationFailed to the client.")
+          log.info("Replica - key " + r.key + " request id is lower than saved. NOT Saving. Sending back OperationFailed to the client.")
           sender() ! OperationFailed(r.id)
         }
       } else {
-       // log.info("Replica - key " + r.key + " is not Defined. Saving...")
+        log.info("Replica - key " + r.key + " is not Defined. Saving...")
         val p = Persist(r.key, Some(r.value), r.id)
         savePersist(p, sender())
       }
@@ -237,13 +237,14 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       context.stop(self)
     }
     case r: ReplicaChildDead => {
+      log.info("Replica - leader received message: ReplicaChildDead ")
       childrenActors = childrenActors - sender()
     }
     case r: PersistAck => {
       val snapshotAck = SnapshotAck(r.key, r.id)
-//       log.info("Replica - secondary received message: PersistAck")
+      log.info("Replica - secondary received message: PersistAck")
       r.sender.tell(snapshotAck, this.self)
-//       log.info("Replica - secondary sent "+ snapshotAck + " to " + r.sender)
+      log.info("Replica - secondary sent "+ snapshotAck + " to " + r.sender)
     }
     case r: Snapshot => {
 //       log.info("Replica received message Snapshot " + r + " from " + sender())
