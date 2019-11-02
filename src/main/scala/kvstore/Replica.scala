@@ -170,7 +170,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: Insert => {
-       log.info("Replica - leader - received Insert " + r + " from " + sender())
+      log.info("Replica - leader - received Insert " + r + " from " + sender())
       val v = kv.get(r.key)
       if (v.isDefined) {
         log.info("Replica - key is defined " + r.key)
@@ -192,16 +192,16 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       val v = kv.get(r.key)
       if (v.isDefined) {
         kv = kv - (r.key)
-       // log.info("Replica - key " + r.key + " removed. Sending OperationAck to the client ")
+        log.info("Replica - key " + r.key + " removed. Sending OperationAck to the client ")
         val p = Persist(r.key, None, r.id)
         savePersist(p, sender())
       } else {
-       // log.info("Replica - key " + r.key + " NOT removed. Sending OperationFailed to the client ")
-        sender() ! OperationFailed(r.id)
+        log.info("Replica - key " + r.key + " NOT removed. Sending OperationAck to the client ")
+        sender() ! OperationAck(r.id)
       }
     }
     case m => {
-//      log.error("Replica - leader received unhandled message " + m + " from " + sender())
+      log.error("Replica - leader received unhandled message " + m + " from " + sender())
     }
   }
 
