@@ -21,8 +21,8 @@ class ReplicaChild(sender:ActorRef, persistence: ActorRef, persist : Persist)
     with Timers
 {
 
-  timers.startPeriodicTimer(persist.id, SendMessage(persist.key, persist.id), 100.millis)
   persistence ! persist
+  timers.startPeriodicTimer(persist.id, SendMessage(persist.key, persist.id), 100.millis)
 
   var counter = 0
 
@@ -38,7 +38,7 @@ class ReplicaChild(sender:ActorRef, persistence: ActorRef, persist : Persist)
 
   def receive = LoggingReceive {
     case r: PoisonPill => {
-      log.info("ReplicaChild - secondary received message: PoisonPill")
+// log.info("ReplicaChild - secondary received message: PoisonPill")
       timers.cancel(persist.id)
       context.stop(self)
     }

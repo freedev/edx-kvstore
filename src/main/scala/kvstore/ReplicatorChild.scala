@@ -39,16 +39,16 @@ class ReplicatorChild(leader:ActorRef, replica: ActorRef, snapshot : Snapshot)
 
   def receive = LoggingReceive {
     case r: PoisonPill => {
-      log.info("ReplicatorChild - secondary received message: PoisonPill")
+// log.info("ReplicatorChild - secondary received message: PoisonPill")
       timers.cancel(snapshot.seq)
       context.parent ! ReplicatorChildDead()
       context.stop(self)
     }
     case r:SnapshotAck => {
-      log.info("ReplicatorChild - Received SnapshotAck from " + sender())
+// log.info("ReplicatorChild - Received SnapshotAck from " + sender())
       context.parent ! r // why?
       leader.tell(Replicated(r.key, r.seq), context.parent)
-      log.info("ReplicatorChild - leader IS " + leader)
+// log.info("ReplicatorChild - leader IS " + leader)
       timers.cancel(snapshot.seq)
       context.stop(self)
     }

@@ -66,6 +66,8 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   var childrenActors = Set.empty[ActorRef]
 
+  var minId = -1L
+
   override def preStart(): Unit = {
    // log.info("Replica - preStart " + self)
     //    sendMessage()
@@ -73,7 +75,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   override def postStop(): Unit = {
     super.postStop()
-    log.info("Replica - postStop ")
+// log.info("Replica - postStop ")
   }
 
   def receive = {
@@ -88,7 +90,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   /* TODO Behavior for  the leader role. */
   val leader: Receive = {
     case r: Replicated => {
-      log.info("Replica - leader received message: Replicated " + replicatedAck(r.id))
+// log.info("Replica - leader received message: Replicated " + replicatedAck(r.id))
       val ackSize =  replicatedAck(r.id) - 1
       if (ackSize == 0) {
         replicatedAck = replicatedAck - (r.id)
@@ -97,36 +99,35 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: ReplicaChildDead => {
-      log.info("Replica - leader received message: ReplicaChildDead ")
+// log.info("Replica - leader received message: ReplicaChildDead ")
       childrenActors = childrenActors - sender()
     }
     case r: MassiveReplicatorDead => {
-      log.info("Replica - leader received message: MassiveReplicatorDead ")
+// log.info("Replica - leader received message: MassiveReplicatorDead ")
       childrenActors = childrenActors - sender()
     }
     case r: PersistAck => {
-      log.info("Replica - leader received message: PersistAck")
+// log.info("Replica - leader received message: PersistAck " + r)
       replicatedAck = replicatedAck + ((r.id, secondaries.size))
       if (secondaries.isEmpty) {
-        log.info("Replica - leader send message: OperationAck back to " + r.sender)
-        r.sender.tell(OperationAck(r.id), self)
+        val optAck = OperationAck(r.id)
+// log.info("Replica - leader send message: OperationAck " + optAck + " back to " + r.sender)
+        r.sender.tell(optAck, self)
       } else {
-
-        log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
+// log.info("Replica - leader received message: PersistAck starting MassiveReplicatorChild")
         val replicate = Replicate(r.key, r.valueOption, r.id)
         childrenActors = childrenActors + context.actorOf(Props(classOf[MassiveReplicatorChild], secondaries, r.sender, replicate))
-
       }
     }
     case r: Replicas => {
-      log.info("Replica - leader received message: Replicas " + secondaries.size)
+// log.info("Replica - leader received message: Replicas " + secondaries.size)
 
       var deadReplicas = Set.empty[ActorRef]
 
       secondaries foreach (entry => {
         if (!r.replicas.contains(entry._1)) {
-          log.info("Replica - sending poisonPill to Replicas " + entry._1)
-          log.info("Replica - sending poisonPill to Replicator " + entry._2)
+// log.info("Replica - sending poisonPill to Replicas " + entry._1)
+// log.info("Replica - sending poisonPill to Replicator " + entry._2)
           entry._1 ! PoisonPill
           entry._2 ! PoisonPill
           deadReplicas = deadReplicas + entry._1
@@ -136,7 +137,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       deadReplicas foreach (deadReplica => {
         secondaries = secondaries - deadReplica
         childrenActors.foreach(child => {
-          log.info("Replica - sending RemovedReplica to childActor " + child)
+// log.info("Replica - sending RemovedReplica to childActor " + child)
           child ! RemovedReplica(deadReplica)
         })
       })
@@ -144,7 +145,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
         // Only replicas not contained into secondaries map should be updated
         if (!curRep.equals(self)) {
           if (!secondaries.contains(curRep)) {
-            log.info("Replica - leader start replication to new replica " + curRep + " self " + self)
+//             log.info("Replica - leader start replication to new replica " + curRep + " self " + self)
             val replicator = context.actorOf(Replicator.props(curRep))
             replicators = replicators + replicator
             secondaries = secondaries + ((curRep, replicator))
@@ -169,12 +170,12 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case r: Insert => {
-      log.info("Replica - leader - received Insert from " + sender())
+//       log.info("Replica - leader - received Insert " + r + " from " + sender())
       val v = kv.get(r.key)
       if (v.isDefined) {
        // log.info("Replica - key is defined " + r.key)
         if (v.get.id <= r.id) {
-          log.info("Replica - key " + r.key + " request id is higher than saved. Saving...")
+//           log.info("Replica - key " + r.key + " request id is higher than saved. Saving...")
           val p = Persist(r.key, Some(r.value), r.id)
           savePersist(p, sender())
         } else {
@@ -200,7 +201,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       }
     }
     case m => {
-     log.error("Replica - leader received unhandled message " + m + " from " + sender())
+//      log.error("Replica - leader received unhandled message " + m + " from " + sender())
     }
   }
 
@@ -216,7 +217,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   }
 
   private def saveSnapshot(r: Snapshot, replicator: ActorRef): Unit = {
-    log.info("Replica - saveSnapshot - start")
+//     log.info("Replica - saveSnapshot - start")
 
     kv = kv + ((r.key, StoreValue(r.valueOption, r.seq)))
 
@@ -231,7 +232,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   /* TODO Behavior for the replica role. */
   val replica: Receive = {
     case r: PoisonPill => {
-      log.info("Replica - secondary received message: PoisonPill")
+//       log.info("Replica - secondary received message: PoisonPill")
       childrenActors foreach (child => child ! PoisonPill)
       context.stop(self)
     }
@@ -239,26 +240,28 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       childrenActors = childrenActors - sender()
     }
     case r: PersistAck => {
-      log.info("Replica - secondary received message: PersistAck")
-      r.sender.tell(SnapshotAck(r.key, r.id), this.self)
+      val snapshotAck = SnapshotAck(r.key, r.id)
+//       log.info("Replica - secondary received message: PersistAck")
+      r.sender.tell(snapshotAck, this.self)
+//       log.info("Replica - secondary sent "+ snapshotAck + " to " + r.sender)
     }
     case r: Snapshot => {
-     // log.info("Replica received message Snapshot")
+//       log.info("Replica received message Snapshot " + r + " from " + sender())
       val v = kv.get(r.key)
-      val kvId = v.getOrElse(StoreValue(null, 0L))
-      if (v.isEmpty && r.valueOption.isEmpty && r.seq == kvId.id) {
-       // log.info("Before saveSnapshot 1")
-        saveSnapshot(r, sender())
-      } else if (v.isDefined) {
+      val kvId = v.getOrElse(StoreValue(null, minId))
+      if (v.isDefined) {
         if (r.seq > kvId.id) {
+          minId = r.seq
          // log.info("Before saveSnapshot 2")
           saveSnapshot(r, sender())
         } else {
+          val snapshotAck = SnapshotAck(r.key, r.seq)
           sender() ! SnapshotAck(r.key, r.seq)
-         // log.info("Replica sent message SnapshotAck")
+//           log.info("Replica sent message SnapshotAck " + snapshotAck + " to " + sender())
         }
       } else {
-        if (r.seq == 0) {
+        if (r.seq == (kvId.id+ 1)) {
+          minId = r.seq
          // log.info("Replica - Before saveSnapshot 3")
           saveSnapshot(r, sender())
         }
@@ -275,7 +278,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       sender() ! OperationFailed(r.id)
     }
     case m => {
-      log.error("Replica - secondary received unhandled message " + m + " from " + sender())
+//       log.error("Replica - secondary received unhandled message " + m + " from " + sender())
     }
   }
 

@@ -52,12 +52,12 @@ class Replicator(val replica: ActorRef) extends Actor {
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
     case r: PoisonPill => {
-      log.info("Replica - secondary received message: PoisonPill")
+// log.info("Replica - secondary received message: PoisonPill")
       childrenActors foreach (child => child ! PoisonPill)
       context.stop(self)
     }
     case r:SnapshotAck => {
-     log.info("Replicator received message SnapshotAck - " + replica)
+// log.info("Replicator received message SnapshotAck - " + replica)
       context.parent ! Replicated(r.key, r.seq)
 
       //      val v = acks.get(r.seq)
@@ -70,7 +70,7 @@ class Replicator(val replica: ActorRef) extends Actor {
 //      })
     }
     case r:Replicate => {
-     log.info("Replicator received message Replicate")
+// log.info("Replicator received message Replicate")
 
       val msg = Snapshot(r.key, r.valueOption, r.id)
 
@@ -81,7 +81,7 @@ class Replicator(val replica: ActorRef) extends Actor {
 
     }
     case m => {
-      log.info("Replicator received unhandled message " + m + " from " + sender())
+// log.info("Replicator received unhandled message " + m + " from " + sender())
     }
   }
 
