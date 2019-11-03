@@ -5,6 +5,7 @@ package kvstore
 
 import akka.actor.Props
 import akka.testkit.TestProbe
+import kvstore.Arbiter.Join
 import kvstore.Persistence.{Persist, Persisted}
 import kvstore.Replica.{Insert, OperationAck}
 import org.scalatest.{FunSuiteLike, Matchers}
@@ -36,7 +37,7 @@ trait IntegrationSpec
 
   test("IntegrationSpec-case2: Primary retries persistence every 100 milliseconds") {
     val client = TestProbe()
-    val arbiter = system.actorOf(Props(classOf[Arbiter]), "integration-case1-arbiter")
+    val arbiter = system.actorOf(Props(classOf[Arbiter]))
     val persistence = TestProbe()
 
     val primary = system.actorOf(Replica.props(arbiter, probeProps(persistence)), "step1-case2-primary")

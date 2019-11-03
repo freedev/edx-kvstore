@@ -28,32 +28,32 @@ class ReplicatorChild(leader:ActorRef, replica: ActorRef, snapshot : Snapshot)
   var counter = 0
 
   override def preStart(): Unit = {
-   // log.info("ReplicatorChild - preStart " + self)
+      log.info("ReplicatorChild - preStart " + self)
     //    sendMessage()
   }
 
   override def postRestart(reason: Throwable): Unit = {
     super.postRestart(reason)
-   // log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
+      log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
   }
 
   def receive = LoggingReceive {
     case r: PoisonPill => {
-// log.info("ReplicatorChild - secondary received message: PoisonPill")
+   log.info("ReplicatorChild - secondary received message: PoisonPill")
       timers.cancel(snapshot.seq)
       context.parent ! ReplicatorChildDead()
       context.stop(self)
     }
     case r:SnapshotAck => {
-// log.info("ReplicatorChild - Received SnapshotAck from " + sender())
+   log.info("ReplicatorChild - Received SnapshotAck from " + sender())
       context.parent ! r // why?
       leader.tell(Replicated(r.key, r.seq), context.parent)
-// log.info("ReplicatorChild - leader IS " + leader)
+   log.info("ReplicatorChild - leader IS " + leader)
       timers.cancel(snapshot.seq)
       context.stop(self)
     }
     case r:SendMessage => {
-     // log.info("ReplicatorChild - Received SendMessage from " + sender())
+        log.info("ReplicatorChild - Received SendMessage from " + sender())
       counter = counter + 1
       if (counter < 10) {
         replica ! snapshot

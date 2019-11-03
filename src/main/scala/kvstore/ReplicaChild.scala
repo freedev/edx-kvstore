@@ -27,30 +27,30 @@ class ReplicaChild(sender:ActorRef, persistence: ActorRef, persist : Persist)
   var counter = 0
 
   override def preStart(): Unit = {
-   // log.info("ReplicaChild - preStart " + self)
+      log.info("ReplicaChild - preStart " + self)
     //    sendMessage()
   }
 
   override def postRestart(reason: Throwable): Unit = {
     super.postRestart(reason)
-   // log.info(s"ReplicaChild - Restarted because of ${reason.getMessage}")
+      log.info(s"ReplicaChild - Restarted because of ${reason.getMessage}")
   }
 
   def receive = LoggingReceive {
     case r: PoisonPill => {
-// log.info("ReplicaChild - secondary received message: PoisonPill")
+   log.info("ReplicaChild - secondary received message: PoisonPill")
       timers.cancel(persist.id)
       context.stop(self)
     }
     case r:Persisted => {
-     // log.info("ReplicaChild - Received Persisted from " + sender())
+        log.info("ReplicaChild - Received Persisted from " + sender())
       context.parent ! PersistAck(sender, persist.key, persist.valueOption, persist.id)
       context.parent ! ReplicaChildDead()
       timers.cancel(persist.id)
       context.stop(self)
     }
     case r:SendMessage => {
-     // log.info("ReplicaChild - Received SendMessage from " + sender())
+        log.info("ReplicaChild - Received SendMessage from " + sender())
       counter = counter + 1
       if (counter < 10) {
         persistence ! persist

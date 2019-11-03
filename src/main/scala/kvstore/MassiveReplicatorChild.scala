@@ -28,19 +28,19 @@ class MassiveReplicatorChild(var secondaries:Map[ActorRef, ActorRef], client:Act
   var counter = 0
 
   override def preStart(): Unit = {
-   // log.info("ReplicatorChild - preStart " + self)
+      log.info("ReplicatorChild - preStart " + self)
     //    sendMessage()
   }
 
   override def postRestart(reason: Throwable): Unit = {
     super.postRestart(reason)
-   // log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
+      log.info(s"ReplicatorChild - Restarted because of ${reason.getMessage}")
   }
 
   def checkAckCount():Unit = {
     ackSize = ackSize - 1
     if (ackSize == 0) {
-//       log.info("MassiveReplicatorChild - received message: Replicated")
+         log.info("MassiveReplicatorChild - received message: Replicated")
       client ! OperationAck(replicate.id)
       context.parent ! MassiveReplicatorDead()
       timers.cancel(replicate.id)
@@ -50,13 +50,13 @@ class MassiveReplicatorChild(var secondaries:Map[ActorRef, ActorRef], client:Act
 
   def receive = LoggingReceive {
     case r: PoisonPill => {
-//       log.info("MassiveReplicatorChild - secondary received message: PoisonPill")
+         log.info("MassiveReplicatorChild - secondary received message: PoisonPill")
       timers.cancel(replicate.id)
       context.stop(self)
     }
     case r: RemovedReplica => {
       val replica = r.replica
-//       log.info("MassiveReplicatorChild - secondary received message: RemovedReplica " + replica )
+         log.info("MassiveReplicatorChild - secondary received message: RemovedReplica " + replica )
       secondaries = secondaries - replica
       checkAckCount
     }
@@ -65,7 +65,7 @@ class MassiveReplicatorChild(var secondaries:Map[ActorRef, ActorRef], client:Act
     }
     case r: CheckReplicateStatus => {
       counter = counter + 1
-//       log.info("MassiveReplicatorChild - Received CheckReplicateStatus counter = " + counter)
+         log.info("MassiveReplicatorChild - Received CheckReplicateStatus counter = " + counter)
       if (counter > 10) {
         client ! OperationFailed(r.id)
         timers.cancel(replicate.id)
@@ -74,9 +74,9 @@ class MassiveReplicatorChild(var secondaries:Map[ActorRef, ActorRef], client:Act
       }
     }
     case r:SendMessage => {
-//       log.info("MassiveReplicatorChild - Received SendMessage from " + sender())
+         log.info("MassiveReplicatorChild - Received SendMessage from " + sender())
       secondaries.foreach(element => {
-        // log.info("Replica - sending Replicate to all replicators " + element._2)
+           log.info("Replica - sending Replicate to all replicators " + element._2)
         element._2.tell(replicate, self)
       })
 

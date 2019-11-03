@@ -30,15 +30,13 @@ class Replicator(val replica: ActorRef) extends Actor {
    * The contents of this actor is just a suggestion, you can implement it in any way you like.
    */
 
-  // map from sequence number to pair of sender and request
-  var acks = Map.empty[Long, (ActorRef, Replicate)]
   // a sequence of not-yet-sent snapshots (you can disregard this if not implementing batching)
   var pending = Vector.empty[Snapshot]
 
   var childrenActors = Set.empty[ActorRef]
 
   override def preStart(): Unit = {
-   // log.info("Replicator - preStart " + self)
+      log.info("Replicator - preStart " + self)
     //    sendMessage()
   }
 
@@ -52,36 +50,23 @@ class Replicator(val replica: ActorRef) extends Actor {
   /* TODO Behavior for the Replicator. */
   def receive: Receive = {
     case r: PoisonPill => {
-// log.info("Replica - secondary received message: PoisonPill")
+   log.info("Replica - secondary received message: PoisonPill")
       childrenActors foreach (child => child ! PoisonPill)
       context.stop(self)
     }
     case r:SnapshotAck => {
-// log.info("Replicator received message SnapshotAck - " + replica)
+       log.info("Replicator received message SnapshotAck - " + replica)
       context.parent ! Replicated(r.key, r.seq)
-
-      //      val v = acks.get(r.seq)
-//      if (v.isEmpty) {
-//        log.info("Replicator acks empty for " + r.seq)
-//      }
-//      v.foreach(ref => {
-//        log.info("Replicator send message Replicated to " + ref._1)
-//        ref._1 ! Replicated(r.key, r.seq)
-//      })
     }
     case r:Replicate => {
-// log.info("Replicator received message Replicate")
+   log.info("Replicator received message Replicate")
 
       val msg = Snapshot(r.key, r.valueOption, r.id)
-
-      acks = acks + ((r.id, (sender, r)))
-
       childrenActors = childrenActors + context.actorOf(Props(classOf[ReplicatorChild], sender(), replica, msg))
-//      replicatorChild ! SendMessage(r.key, r.id)
 
     }
     case m => {
-// log.info("Replicator received unhandled message " + m + " from " + sender())
+   log.info("Replicator received unhandled message " + m + " from " + sender())
     }
   }
 
